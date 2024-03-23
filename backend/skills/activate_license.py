@@ -7,13 +7,13 @@ class ActivateLicenseSkillPlugin():
     """
 
     @kernel_function(
-        description="Activate license and send activation e-mail to customer.",
+        description="Activate license",
         name="ActivateLicenseAndSendActivationEmail",
     )
     
     def activate_license(self, activation_key: Annotated[Optional[str], "the activation key"] = None, full_name: Annotated[Optional[str], "the customer full name"] = None, email: Annotated[Optional[str], "the customer email"] = None, confirmation: Annotated[Optional[str], "the customer confirmation"] = None) -> Annotated[str, "the output is the message to the user"]:
         """
-        Description: Activate license and resend activation e-mail to customer.
+        Description: Activate license
         Args:
             activation_key (str): the activation key
             full_name (str): the customer full name
@@ -23,16 +23,16 @@ class ActivateLicenseSkillPlugin():
             str value
         """
         try:
-            if(activation_key == ""):
+            if(activation_key == "" or activation_key.lower() == 'none'):
                 return """To activate your license we need to know your activation key, full name and contact email address.\n\nWhat is your activation key, please?"""
             
-            if(full_name == ""):
+            if(full_name == "" or activation_key.lower() == 'none'):
                 return "What is your full name, please?"
             
-            if(email == ""):
+            if(email == "" or activation_key.lower() == 'none'):
                 return f"What is your contact email address, please?"
             
-            if(confirmation == ""):
+            if(confirmation == "" or activation_key.lower() == 'none'):
                 return f"We will send an activation email to { email }. Do you want to proceed?"
 
             if(confirmation.lower() == 'false'):
