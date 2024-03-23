@@ -4,6 +4,16 @@ import os
 import logging
 import uuid
 from dotenv import load_dotenv
+import semantic_kernel as sk
+import semantic_kernel.connectors.ai.open_ai as sk_oai
+from semantic_kernel.prompt_template.input_variable import InputVariable
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+from semantic_kernel.planners.sequential_planner import SequentialPlanner
+from semantic_kernel.planners.action_planner import ActionPlanner
+from semantic_kernel.exceptions.planner_exceptions import PlannerException
+
+logger: logging.Logger = logging.getLogger(__name__)
+kernel = sk.Kernel()
 
 from quart import (
     Blueprint,
@@ -19,6 +29,7 @@ from openai import AsyncAzureOpenAI
 from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
 from backend.auth.auth_utils import get_authenticated_user_details
 from backend.history.cosmosdbservice import CosmosConversationClient
+from backend.skills.activate_license import ActivateLicenseSkillPlugin
 
 from backend.utils import format_as_ndjson, format_stream_response, generateFilterString, parse_multi_columns, format_non_streaming_response
 
@@ -188,6 +199,15 @@ frontend_settings = {
     "sanitize_answer": SANITIZE_ANSWER
 }
 
+service_id = "aoai_chat"  # used later in the notebook
+azure_chat_service = AzureChatCompletion(
+    service_id=service_id, 
+    deployment_name=AZURE_OPENAI_MODEL, 
+    endpoint=AZURE_OPENAI_ENDPOINT, 
+    api_key=AZURE_OPENAI_KEY
+)  # set the deployment name to the value of your chat model
+kernel.add_service(azure_chat_service)
+
 def should_use_data():
     global DATASOURCE_TYPE
     if AZURE_SEARCH_SERVICE and AZURE_SEARCH_INDEX:
@@ -217,7 +237,7 @@ def should_use_data():
 
     return False
 
-SHOULD_USE_DATA = should_use_data()
+SHOULD_USE_DATA = should_use_data() 
 
 # Initialize Azure OpenAI Client
 def init_openai_client(use_data=SHOULD_USE_DATA):
@@ -568,14 +588,74 @@ async def stream_chat_request(request_body):
 
 async def conversation_internal(request_body):
     try:
-        if SHOULD_STREAM:
+        from semantic_kernel.core_plugins import ConversationSummaryPlugin
+        from semantic_kernel.prompt_template.prompt_template_config import PromptTemplateConfig
+
+        req_settings = kernel.get_service(service_id).get_prompt_execution_settings_class()(service_id=service_id)
+        # chat_prompt_template_config = PromptTemplateConfig(
+        #     template=request_body["messages"][-1]["content"],
+        #     description="Chat with the assistant",
+        #     execution_settings={service_id: req_settings},
+        #     input_variables=[
+        #         InputVariable(name="history", description="The history of the conversation", is_required=True),
+        #     ],
+        # )
+
+        kernel.import_plugin_from_object(ActivateLicenseSkillPlugin(), plugin_name="ActivateLicenseSkillPlugin")
+        
+        # Create the prompt with the ConversationSummaryPlugin
+        prompt = """IF PARAMETER IS NOT SET IN THE PROMPT FOR FUNCTION, KEEP IT EMPTY and DO NOT USE ANY VARIABLES.
+            WHEN OPERATION REQUIRES USER CONFIRMATION, TRANFORM USER INPUT TO BOOLEAN BASED ON THE USER INPUT.
+            Here starts the conversation with the assistant.
+        """
+        history = ""
+        for message in request_body["messages"][0:-1]:
+            if("role" in message and "content" in message):
+                history += f"{message['role']}: {message['content']}\n"
+        
+        prompt += f"Previous conversations: { history }\n"
+        prompt += f"Last message: {request_body['messages'][-1]['role']}: {request_body['messages'][-1]['content']}\n"
+        
+        logger.debug(f"Prompt: {prompt}")
+        
+        planner = SequentialPlanner(kernel, service_id=service_id)
+
+        try: 
+            # Create a plan
+            plan = await planner.create_plan(prompt)
+            
+            # Execute the plan
+            result = await plan.invoke(kernel)
+            response = await make_response({
+                "choices": [
+                    {
+                        "messages": [
+                            {
+                                "content": str(result),
+                                "role": "assistant"
+                            }
+                        ]
+                    }
+                ],
+                "history_metadata": {},
+                "model": "gpt-4-32k",
+                "object": "chat.completion"
+            })
+            response.timeout = None
+            response.mimetype = "application/json-lines"
+
+            return response
+        except Exception as ex:
+          if SHOULD_STREAM:
             result = await stream_chat_request(request_body)
             response = await make_response(format_as_ndjson(result))
             response.timeout = None
             response.mimetype = "application/json-lines"
+
             return response
-        else:
+          else:
             result = await complete_chat_request(request_body)
+        
             return jsonify(result)
     
     except Exception as ex:

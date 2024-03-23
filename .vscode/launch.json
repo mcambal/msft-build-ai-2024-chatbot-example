@@ -2,8 +2,15 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Launch Chrome",
+      "request": "launch",
+      "type": "chrome",
+      "url": "http://127.0.0.1:50505",
+      "webRoot": "${workspaceFolder}"
+    },
+    {
       "name": "Python: Sample App Backend",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "module": "quart",
       "cwd": "${workspaceFolder}",
@@ -15,7 +22,8 @@
       "args": [
           "run",
           "--no-reload",
-          "-p 50505"
+          "--host=127.0.0.1",
+          "--port=50505"
       ],
       "console": "integratedTerminal",
       "justMyCode": false,
