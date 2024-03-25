@@ -235,7 +235,7 @@ def should_use_data():
 
     return False
 
-SHOULD_USE_DATA = should_use_data() 
+SHOULD_USE_DATA = should_use_data()
 
 # Initialize Azure OpenAI Client
 def init_openai_client(use_data=SHOULD_USE_DATA):
@@ -587,30 +587,21 @@ async def stream_chat_request(request_body):
 async def conversation_internal(request_body):
     try:
         try: 
-            #raise Exception("Skip the planner for now.")
             kernel.import_plugin_from_object(LicenseOperationsPlugin(), plugin_name="LicenseOperationsSkillPlugin")
             kernel.import_plugin_from_object(MathPlugin(), plugin_name="MathPlugin")
             
-            prompt = "You are a chatbot that helps people find non-technical information."
             history = ""
-
-            # chat_function = kernel.create_function_from_prompt(
-            #     prompt="Ask for function mandatory arguments if missing",
-            #     plugin_name="chatGPT",
-            #     function_name="Chat",
-            #     prompt_template_config=chat_prompt_template_config,
-            # )
-
             for message in request_body["messages"][0:-1]:
                 if("role" in message and "content" in message):
                     history += f"{message['role']} wrote \"{message['content']}\"\n"
             
+            prompt = "You are a chatbot that helps people find non-technical information."
             if(history != ""):
                 prompt += f"Previous context: { history }\n"
 
             prompt += f"Current message: {request_body['messages'][-1]['role']} wrote \"{request_body['messages'][-1]['content']}\""
             
-            #prompt = "If my investment of 2130.23 dollars, how much would I have after I spent $5 on a latte?"
+            # Calculates the plan from available functions and throw an exception if no function is suitable for user input
             planner = SequentialPlanner(kernel, service_id)
             plan = await planner.create_plan(prompt)
 
