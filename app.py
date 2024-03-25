@@ -5,12 +5,10 @@ import logging
 import uuid
 from dotenv import load_dotenv
 import semantic_kernel as sk
-import semantic_kernel.connectors.ai.open_ai as sk_oai
-from semantic_kernel.prompt_template.input_variable import InputVariable
 from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 from semantic_kernel.planners.sequential_planner import SequentialPlanner
-from semantic_kernel.planners.action_planner import ActionPlanner
-from semantic_kernel.exceptions.planner_exceptions import PlannerException
+from semantic_kernel.planners.stepwise_planner import StepwisePlanner
+from semantic_kernel.core_plugins.math_plugin import MathPlugin
 
 logger: logging.Logger = logging.getLogger(__name__)
 kernel = sk.Kernel()
@@ -29,7 +27,7 @@ from openai import AsyncAzureOpenAI
 from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
 from backend.auth.auth_utils import get_authenticated_user_details
 from backend.history.cosmosdbservice import CosmosConversationClient
-from backend.skills.activate_license import ActivateLicenseSkillPlugin
+from backend.skills.license_operations import LicenseOperationsPlugin
 
 from backend.utils import format_as_ndjson, format_stream_response, generateFilterString, parse_multi_columns, format_non_streaming_response
 
@@ -588,41 +586,36 @@ async def stream_chat_request(request_body):
 
 async def conversation_internal(request_body):
     try:
-        from semantic_kernel.core_plugins import ConversationSummaryPlugin
-        from semantic_kernel.prompt_template.prompt_template_config import PromptTemplateConfig
-
-        req_settings = kernel.get_service(service_id).get_prompt_execution_settings_class()(service_id=service_id)
-        # chat_prompt_template_config = PromptTemplateConfig(
-        #     template=request_body["messages"][-1]["content"],
-        #     description="Chat with the assistant",
-        #     execution_settings={service_id: req_settings},
-        #     input_variables=[
-        #         InputVariable(name="history", description="The history of the conversation", is_required=True),
-        #     ],
-        # )
-
-        kernel.import_plugin_from_object(ActivateLicenseSkillPlugin(), plugin_name="ActivateLicenseSkillPlugin")
-        
-        # Create the prompt with the ConversationSummaryPlugin
-        prompt = """IF PARAMETER IS NOT SET IN THE PROMPT FOR FUNCTION, KEEP IT EMPTY and DO NOT USE ANY VARIABLES.
-            WHEN OPERATION REQUIRES USER CONFIRMATION, TRANFORM USER INPUT TO BOOLEAN BASED ON THE USER INPUT.
-            Here starts the conversation with the assistant.
-        """
-        history = ""
-        for message in request_body["messages"][0:-1]:
-            if("role" in message and "content" in message):
-                history += f"{message['role']}: {message['content']}\n"
-        
-        prompt += f"Previous conversations: { history }\n"
-        prompt += f"Last message: {request_body['messages'][-1]['role']}: {request_body['messages'][-1]['content']}\n"
-        
-        logger.debug(f"Prompt: {prompt}")
-        
-        planner = SequentialPlanner(kernel, service_id=service_id)
-
         try: 
-            # Create a plan
+            #raise Exception("Skip the planner for now.")
+            kernel.import_plugin_from_object(LicenseOperationsPlugin(), plugin_name="LicenseOperationsSkillPlugin")
+            kernel.import_plugin_from_object(MathPlugin(), plugin_name="MathPlugin")
+            
+            prompt = "You are a chatbot that helps people find non-technical information."
+            history = ""
+
+            # chat_function = kernel.create_function_from_prompt(
+            #     prompt="Ask for function mandatory arguments if missing",
+            #     plugin_name="chatGPT",
+            #     function_name="Chat",
+            #     prompt_template_config=chat_prompt_template_config,
+            # )
+
+            for message in request_body["messages"][0:-1]:
+                if("role" in message and "content" in message):
+                    history += f"{message['role']} wrote \"{message['content']}\"\n"
+            
+            if(history != ""):
+                prompt += f"Previous context: { history }\n"
+
+            prompt += f"Current message: {request_body['messages'][-1]['role']} wrote \"{request_body['messages'][-1]['content']}\""
+            
+            #prompt = "If my investment of 2130.23 dollars, how much would I have after I spent $5 on a latte?"
+            planner = SequentialPlanner(kernel, service_id)
             plan = await planner.create_plan(prompt)
+
+            planner = StepwisePlanner(kernel)
+            plan = planner.create_plan(prompt)
             
             # Execute the plan
             result = await plan.invoke(kernel)
@@ -638,7 +631,6 @@ async def conversation_internal(request_body):
                     }
                 ],
                 "history_metadata": {},
-                "model": "gpt-4-32k",
                 "object": "chat.completion"
             })
             response.timeout = None
