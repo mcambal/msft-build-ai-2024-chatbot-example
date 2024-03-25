@@ -585,68 +585,67 @@ async def stream_chat_request(request_body):
     return generate()
 
 async def conversation_internal(request_body):
-    try:
-        try: 
-            kernel.import_plugin_from_object(LicenseOperationsPlugin(), plugin_name="LicenseOperationsSkillPlugin")
-            kernel.import_plugin_from_object(MathPlugin(), plugin_name="MathPlugin")
-            
-            history = ""
-            for message in request_body["messages"][0:-1]:
-                if("role" in message and "content" in message):
-                    history += f"{message['role']} wrote \"{message['content']}\"\n"
-            
-            prompt = "You are a chatbot that helps people find non-technical information."
-            if(history != ""):
-                prompt += f"Previous context: { history }\n"
-
-            prompt += f"Current message: {request_body['messages'][-1]['role']} wrote \"{request_body['messages'][-1]['content']}\""
-            
-            # Calculates the plan from available functions and throw an exception if no function is suitable for user input
-            planner = SequentialPlanner(kernel, service_id)
-            plan = await planner.create_plan(prompt)
-
-            planner = StepwisePlanner(kernel)
-            plan = planner.create_plan(prompt)
-            
-            # Execute the plan
-            result = await plan.invoke(kernel)
-            response = await make_response({
-                "choices": [
-                    {
-                        "messages": [
-                            {
-                                "content": str(result),
-                                "role": "assistant"
-                            }
-                        ]
-                    }
-                ],
-                "history_metadata": {},
-                "object": "chat.completion"
-            })
-            response.timeout = None
-            response.mimetype = "application/json-lines"
-
-            return response
-        except Exception as ex:
-          if SHOULD_STREAM:
-            result = await stream_chat_request(request_body)
-            response = await make_response(format_as_ndjson(result))
-            response.timeout = None
-            response.mimetype = "application/json-lines"
-
-            return response
-          else:
-            result = await complete_chat_request(request_body)
+    try: 
+        kernel.import_plugin_from_object(LicenseOperationsPlugin(), plugin_name="LicenseOperationsSkillPlugin")
+        kernel.import_plugin_from_object(MathPlugin(), plugin_name="MathPlugin")
         
-            return jsonify(result)
-    
+        history = ""
+        for message in request_body["messages"][0:-1]:
+            if("role" in message and "content" in message):
+                history += f"{message['role']} wrote \"{message['content']}\"\n"
+        
+        prompt = "You are a chatbot that helps people find non-technical information."
+        if(history != ""):
+            prompt += f"Previous context: { history }\n"
+
+        prompt += f"Current message: {request_body['messages'][-1]['role']} wrote \"{request_body['messages'][-1]['content']}\""
+        
+        # Calculates the plan from available functions and throw an exception if no function is suitable for user input
+        planner = SequentialPlanner(kernel, service_id)
+        plan = await planner.create_plan(prompt)
+
+        planner = StepwisePlanner(kernel)
+        plan = planner.create_plan(prompt)
+        
+        # Execute the plan
+        result = await plan.invoke(kernel)
+        response = await make_response({
+            "choices": [
+                {
+                    "messages": [
+                        {
+                            "content": str(result),
+                            "role": "assistant"
+                        }
+                    ]
+                }
+            ],
+            "history_metadata": {},
+            "object": "chat.completion"
+        })
+        response.timeout = None
+        response.mimetype = "application/json-lines"
+
+        return response
     except Exception as ex:
-        logging.exception(ex)
-        if hasattr(ex, "status_code"):
-            return jsonify({"error": str(ex)}), ex.status_code
-        else:
-            return jsonify({"error": str(ex)}), 500
+        try:
+            if SHOULD_STREAM:
+                result = await stream_chat_request(request_body)
+                response = await make_response(format_as_ndjson(result))
+                response.timeout = None
+                response.mimetype = "application/json-lines"
+
+                return response
+            else:
+                result = await complete_chat_request(request_body)
+    
+            return jsonify(result)
+        except Exception as ex:
+            logging.exception(ex)
+            if hasattr(ex, "status_code"):
+                return jsonify({"error": str(ex)}), ex.status_code
+            else:
+                return jsonify({"error": str(ex)}), 500
 
 
 @bp.route("/conversation", methods=["POST"])
