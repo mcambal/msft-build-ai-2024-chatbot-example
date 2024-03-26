@@ -1,5 +1,5 @@
 from semantic_kernel.functions import kernel_function
-from typing import Annotated, Optional
+from typing import Annotated
 
 class LicenseOperationsPlugin():
     """
@@ -7,7 +7,7 @@ class LicenseOperationsPlugin():
     """
 
     @kernel_function(
-        description="Activate new license for customer",
+        description="Activate new license for the customer",
         name="ActivateLicenseAndSendActivationEmail",
     )
     def activate_license(self, activation_key: Annotated[str, "the activation key"], full_name: Annotated[str, "the customer full name"], email: Annotated[str, "the customer email"]) -> Annotated[str, "the output is the message to the user"]:
@@ -21,11 +21,17 @@ class LicenseOperationsPlugin():
             str value
         """
         try:
-        
-            # TODO: Call API endoint and handle response
+            # data = {
+            #     "activation_key": activation_key,
+            #     "full_name": full_name,
+            #     "email": email
+            # }
+
+            # # Make the POST request
+            # response = requests.post(url, data=data)
             
-            return f"""We have sent activation email to customer.\n
-We have registered this customer's data:\n
+            return f"""We have sent the activation email to customer.\n
+We have registered product with this customer's data:\n
 Full Name: {full_name}\n
 Email: {email}\n
 Activation Key: {activation_key}
@@ -46,7 +52,12 @@ Activation Key: {activation_key}
             str value
         """
         try:
-            # TODO: Call API endoint and handle response
+            # data = {
+            #     "email": email
+            # }
+
+            # # Make the POST request
+            # response = requests.post(url, data=data)
             
             return f"""We have sent further details to customer's email address {email}"""
         except ValueError as e:
