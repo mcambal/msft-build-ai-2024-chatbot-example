@@ -10,6 +10,10 @@ if [ $? -ne 0 ]; then
     exit $?
 fi
 
+cd ..
+. ./scripts/loadenv.sh
+
+cd frontend
 echo ""
 echo "Building frontend"
 echo ""
@@ -18,10 +22,7 @@ if [ $? -ne 0 ]; then
     echo "Failed to build frontend"
     exit $?
 fi
-
 cd ..
-. ./scripts/loadenv.sh
-
 echo ""
 echo "Starting backend"
 echo ""

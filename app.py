@@ -4,6 +4,14 @@ import os
 import logging
 import uuid
 from dotenv import load_dotenv
+import semantic_kernel as sk
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+from semantic_kernel.planners.sequential_planner import SequentialPlanner
+from semantic_kernel.planners.stepwise_planner import StepwisePlanner
+from semantic_kernel.core_plugins.math_plugin import MathPlugin
+
+logger: logging.Logger = logging.getLogger(__name__)
+kernel = sk.Kernel()
 
 from quart import (
     Blueprint,
@@ -19,6 +27,7 @@ from openai import AsyncAzureOpenAI
 from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
 from backend.auth.auth_utils import get_authenticated_user_details
 from backend.history.cosmosdbservice import CosmosConversationClient
+from backend.skills.license_operations import LicenseOperationsPlugin
 
 from backend.utils import format_as_ndjson, format_stream_response, generateFilterString, parse_multi_columns, format_non_streaming_response
 
@@ -187,6 +196,15 @@ frontend_settings = {
     },
     "sanitize_answer": SANITIZE_ANSWER
 }
+
+service_id = "aoai_chat"  # used later in the notebook
+azure_chat_service = AzureChatCompletion(
+    service_id=service_id, 
+    deployment_name=AZURE_OPENAI_MODEL, 
+    endpoint=AZURE_OPENAI_ENDPOINT, 
+    api_key=AZURE_OPENAI_KEY
+)  # set the deployment name to the value of your chat model
+kernel.add_service(azure_chat_service)
 
 def should_use_data():
     global DATASOURCE_TYPE
@@ -567,23 +585,67 @@ async def stream_chat_request(request_body):
     return generate()
 
 async def conversation_internal(request_body):
-    try:
-        if SHOULD_STREAM:
-            result = await stream_chat_request(request_body)
-            response = await make_response(format_as_ndjson(result))
-            response.timeout = None
-            response.mimetype = "application/json-lines"
-            return response
-        else:
-            result = await complete_chat_request(request_body)
-            return jsonify(result)
-    
+    try: 
+        kernel.import_plugin_from_object(LicenseOperationsPlugin(), plugin_name="LicenseOperationsSkillPlugin")
+        kernel.import_plugin_from_object(MathPlugin(), plugin_name="MathPlugin")
+        
+        history = ""
+        for message in request_body["messages"][0:-1]:
+            if("role" in message and "content" in message):
+                history += f"{message['role']} wrote \"{message['content']}\"\n"
+        
+        prompt = "You are a chatbot that helps people find non-technical information."
+        if(history != ""):
+            prompt += f"Previous context: { history }\n"
+
+        prompt += f"Current message: {request_body['messages'][-1]['role']} wrote \"{request_body['messages'][-1]['content']}\""
+        
+        # Calculates the plan from available functions and throw an exception if no function is suitable for user input
+        planner = SequentialPlanner(kernel, service_id)
+        plan = await planner.create_plan(prompt)
+
+        planner = StepwisePlanner(kernel)
+        plan = planner.create_plan(prompt)
+        
+        # Execute the plan
+        result = await plan.invoke(kernel)
+        response = await make_response({
+            "choices": [
+                {
+                    "messages": [
+                        {
+                            "content": str(result),
+                            "role": "assistant"
+                        }
+                    ]
+                }
+            ],
+            "history_metadata": {},
+            "object": "chat.completion"
+        })
+        response.timeout = None
+        response.mimetype = "application/json-lines"
+
+        return response
     except Exception as ex:
-        logging.exception(ex)
-        if hasattr(ex, "status_code"):
-            return jsonify({"error": str(ex)}), ex.status_code
-        else:
-            return jsonify({"error": str(ex)}), 500
+        try:
+            if SHOULD_STREAM:
+                result = await stream_chat_request(request_body)
+                response = await make_response(format_as_ndjson(result))
+                response.timeout = None
+                response.mimetype = "application/json-lines"
+
+                return response
+            else:
+                result = await complete_chat_request(request_body)
+    
+            return jsonify(result)
+        except Exception as ex:
+            logging.exception(ex)
+            if hasattr(ex, "status_code"):
+                return jsonify({"error": str(ex)}), ex.status_code
+            else:
+                return jsonify({"error": str(ex)}), 500
 
 
 @bp.route("/conversation", methods=["POST"])

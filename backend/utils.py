@@ -71,7 +71,6 @@ def generateFilterString(userToken):
 
 def format_non_streaming_response(chatCompletion, history_metadata, message_uuid=None):
     response_obj = {
-        "id": chatCompletion.id,
         "model": chatCompletion.model,
         "created": chatCompletion.created,
         "object": chatCompletion.object,
